@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>在线闹钟工具</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background: linear-gradient(135deg, #6e8efb, #a777e3);
+            margin: 0;
+            color: #333;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            max-width: 500px;
+            width: 90%;
+        }
+        h1 {
+            color: #4a4a4a;
+            margin-bottom: 20px;
+            font-size: 28px;
+        }
+        .current-time {
+            font-size: 18px;
+            margin-bottom: 15px;
+            color: #666;
+        }
+        .time-input {
+            margin: 20px 0;
+        }
+        .time-input label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+        input[type="time"] {
+            padding: 12px;
+            font-size: 18px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            width: 150px;
+            text-align: center;
+        }
+        button {
+            padding: 12px 25px;
+            font-size: 16px;
+            margin: 10px 5px;
+            cursor: pointer;
+            background-color: #6e8efb;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #5a7de0;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #cancelAlarm {
+            background-color: #ff6b6b;
+        }
+        #cancelAlarm:hover {
+            background-color: #ff5252;
+        }
+        .countdown {
+            font-size: 42px;
+            font-weight: bold;
+            margin: 25px 0;
+            color: #333;
+            min-height: 60px;
+        }
+        .message {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 8px;
+            display: none;
+        }
+        .error {
+            background-color: #ffebee;
+            color: #d32f2f;
+            border: 1px solid #ffcdd2;
+        }
+        .info {
+            background-color: #e3f2fd;
+            color: #1976d2;
+            border: 1px solid #bbdefb;
+        }
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+            .countdown {
+                font-size: 32px;
+            }
+            input[type="time"] {
+                width: 120px;
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>在线闹钟工具</h1>
+        
+        <div class="current-time" id="currentTime"></div>
+        
+        <div class="time-input">
+            <label for="alarmTime">请选择未来2小时内的提醒时间：</label>
+            <input type="time" id="alarmTime">
+        </div>
+        
+        <div>
+            <button id="setAlarm">设定闹钟</button>
+            <button id="cancelAlarm" disabled>取消闹钟</button>
+        </div>
+        
+        <div class="countdown" id="countdown"></div>
+        
+        <div class="message info" id="infoMessage"></div>
+        <div class="message error" id="errorMessage"></div>
+        
+        <audio id="alarmSound" src="https://assets.mixkit.co/sfx/preview/mixkit-alarm-digital-clock-beep-989.mp3" preload="auto"></audio>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // 获取DOM元素
+            const currentTimeElement = document.getElementById('currentTime');
+            const alarmTimeInput = document.getElementById('alarmTime');
+            const setAlarmButton = document.getElementById('setAlarm');
+            const cancelAlarmButton = document.getElementById('cancelAlarm');
+            const countdownElement = document.getElementById('countdown');
+            const infoMessageElement = document.getElementById('infoMessage');
+            const errorMessageElement = document.getElementById('errorMessage');
+            const alarmSound = document.getElementById('alarmSound');
+            
+            let alarmInterval = null;
+            let alarmTimeout = null;
+            
+            // 设置时间输入框的最小和最大值（当前时间到2小时后）
+            function setTimeInputLimits() {
+                const now = new Date();
+                const minTime = new Date(now.getTime());
+                const maxTime = new Date(now.getTime() + 2 * 60 * 60 * 1000); // 2小时后
+                
+                // 格式化时间为HH:MM
+                const formatTime = (date) => {
+                    return date.getHours().toString().padStart(2, '0') + ':' + 
+                           date.getMinutes().toString().padStart(2, '0');
+                };
+                
+                // 设置输入框的min和max属性（HTML5时间输入框支持这些属性）
+                alarmTimeInput.min = formatTime(minTime);
+                alarmTimeInput.max = formatTime(maxTime);
+                
+                // 设置默认值为30分钟后
+                const defaultTime = new Date(now.getTime() + 30 * 60 * 1000);
+                alarmTimeInput.value = formatTime(defaultTime);
+            }
+            
+            // 更新当前时间显示
+            function updateCurrentTime() {
+                const now = new Date();
+                const timeString = now.toLocaleTimeString('zh-CN');
+                currentTimeElement.textContent = `当前时间: ${timeString}`;
+            }
+            
+            // 显示消息
+            function showMessage(element, message) {
+                element.textContent = message;
+                element.style.display = 'block';
+                
+                // 5秒后隐藏消息
+                setTimeout(() => {
+                    element.style.display = 'none';
+                }, 5000);
+            }
+            
+            // 验证选择的时间是否有效（在未来2小时内）
+            function validateAlarmTime(alarmTime) {
+                const now = new Date();
+                const selectedTime = new Date();
+                
+                // 设置选定时间的小时和分钟
+                const [hours, minutes] = alarmTime.split(':');
+                selectedTime.setHours(parseInt(hours));
+                selectedTime.setMinutes(parseInt(minutes));
+                selectedTime.setSeconds(0);
+                selectedTime.setMilliseconds(0);
+                
+                // 计算时间差（毫秒）
+                const timeDiff = selectedTime.getTime() - now.getTime();
+                
+                if (timeDiff <= 0) {
+                    return { isValid: false, message: "请选择未来的时间" };
+                }
+                
+                if (timeDiff > 2 * 60 * 60 * 1000) {
+                    return { isValid: false, message: "请选择2小时内的的时间" };
+                }
+                
+                return { 
+                    isValid: true, 
+                    message: "",
+                    targetTime: selectedTime,
+                    timeDiff: timeDiff
+                };
+            }
+            
+            // 开始倒计时
+            function startCountdown(targetTime) {
+                // 先立即更新一次显示
+                updateCountdownDisplay(targetTime);
+                
+                // 然后每秒更新一次
+                alarmInterval = setInterval(() => {
+                    const isCompleted = updateCountdownDisplay(targetTime);
+                    
+                    if (isCompleted) {
+                        clearInterval(alarmInterval);
+                        playAlarm();
+                    }
+                }, 1000);
+            }
+            
+            // 更新倒计时显示
+            function updateCountdownDisplay(targetTime) {
+                const now = new Date();
+                const timeDiff = targetTime.getTime() - now.getTime();
+                
+                if (timeDiff <= 0) {
+                    countdownElement.textContent = "00:00:00";
+                    return true; // 倒计时完成
+                }
+                
+                // 计算剩余的小时、分钟和秒
+                const hours = Math.floor(timeDiff / (1000 * 60 * 60));
+                const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
+                const seconds = Math.floor((timeDiff % (1000 * 60)) / 1000);
+                
+                // 格式化显示
+                countdownElement.textContent = 
+                    `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                
+                return false; // 倒计时未完成
+            }
+            
+            // 播放闹钟声音
+            function playAlarm() {
+                alarmSound.play();
+                showMessage(infoMessageElement, "时间到！闹钟提醒");
+                
+                // 停止播放 after 10 seconds
+                setTimeout(() => {
+                    alarmSound.pause();
+                    alarmSound.currentTime = 0;
+                }, 10000);
+            }
+            
+            // 设置闹钟
+            function setAlarm() {
+                const alarmTime = alarmTimeInput.value;
+                
+                if (!alarmTime) {
+                    showMessage(errorMessageElement, "请选择有效的时间");
+                    return;
+                }
+                
+                const validation = validateAlarmTime(alarmTime);
+                
+                if (!validation.isValid) {
+                    showMessage(errorMessageElement, validation.message);
+                    return;
+                }
+                
+                // 禁用设置按钮，启用取消按钮
+                setAlarmButton.disabled = true;
+                cancelAlarmButton.disabled = false;
+                alarmTimeInput.disabled = true;
+                
+                showMessage(infoMessageElement, `闹钟已设置为: ${alarmTime}`);
+                startCountdown(validation.targetTime);
+            }
+            
+            // 取消闹钟
+            function cancelAlarm() {
+                if (alarmInterval) {
+                    clearInterval(alarmInterval);
+                    alarmInterval = null;
+                }
+                
+                if (alarmTimeout) {
+                    clearTimeout(alarmTimeout);
+                    alarmTimeout = null;
+                }
+                
+                alarmSound.pause();
+                alarmSound.currentTime = 0;
+                
+                countdownElement.textContent = "";
+                setAlarmButton.disabled = false;
+                cancelAlarmButton.disabled = true;
+                alarmTimeInput.disabled = false;
+                
+                showMessage(infoMessageElement, "闹钟已取消");
+            }
+            
+            // 初始化
+            setTimeInputLimits();
+            updateCurrentTime();
+            setInterval(updateCurrentTime, 1000);
+            
+            // 添加事件监听器
+            setAlarmButton.addEventListener('click', setAlarm);
+            cancelAlarmButton.addEventListener('click', cancelAlarm);
+        });
+    </script>
+</body>
+</html>
